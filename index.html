@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deep Fake Audio Detector</title>
+    <!-- Use this -->
+<link rel="stylesheet" href="./style.css">
+  </head>
+  <body> 
+    <!-- <div class="container">
+      <h1>Deep Fake Audio Detector🕵️</h1>
+      <p class="subtitle">
+        Upload your audio or try the sample. Click <strong>Analyze</strong> to
+        check authenticity.
+      </p> -->
+      <div class="header-box">
+        <h1>Deep Fake Audio Detector🕵️</h1>
+        <p class="subtitle">Upload your audio or try the sample. Click Analyze to check authenticity.</p>
+    </div>
+
+      <!-- Upload Section -->
+      <div class="upload-section" id="dropZone">
+        <div id="filePreview">
+          <p>📁 Selected Audio</p>
+          <p>Drag & Drop Here</p>
+          <p>─ or ─</p>
+          <button
+            class="primary-btn"
+            onclick="document.getElementById('fileInput').click()"
+          >
+            📤 Click to Upload
+          </button>
+        </div>
+        <input type="file" id="fileInput" hidden accept="audio/*" />
+      </div>
+
+      <!-- Action Buttons -->
+      <!-- Move this section below the action buttons -->
+      <div class="action-buttons">
+        <button class="sample-btn" onclick="loadSample('real')">
+          🎧 Try Sample Real
+        </button>
+        <button class="primary-btn" onclick="predict()">
+          🧠 Analyze Audio
+        </button>
+        <button class="secondary-btn" onclick="clearAll()">🧼 Clear All</button>
+      </div>
+
+      <!-- Centered Recorder Section -->
+      <div class="recorder-section">
+        <button id="recordButton">🎤</button>
+        <div class="record-indicator">
+          <div class="record-dot"></div>
+          <span>Recording...</span>
+        </div>
+        <audio id="recordedAudio" class="hidden" controls></audio>
+      </div>
+
+      <!-- Results & Loading -->
+      <div id="result" class="hidden"></div>
+      <div id="loading" class="hidden">⏳ Analyzing audio...</div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <div class="footer-left">
+          <p>Supported formats: WAV, MP3, FLAC</p>
+          <p>Built with Gradio ● Powered by AI</p>
+        </div>
+        <div class="footer-right">
+          <span>Settings 💬</span>
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      import { Client } from "https://unpkg.com/@gradio/client?module";
+
+      let gradioClient = null;
+      let currentAudio = null;
+      let mediaRecorder = null;
+      let audioChunks = [];
+
+      // DOM Elements
+      const filePreview = document.getElementById("filePreview");
+      const resultDiv = document.getElementById("result");
+      const loading = document.getElementById("loading");
+      const fileInput = document.getElementById("fileInput");
+      const dropZone = document.getElementById("dropZone");
+      const recordButton = document.getElementById("recordButton");
+      const recordedAudio = document.getElementById("recordedAudio");
+      const recordIndicator = document.querySelector(".record-indicator");
+
+      // Initialize Gradio Client
+      async function initializeClient() {
+        try {
+          gradioClient = await Client.connect("refikbklm/fake-audio-detector");
+          console.log("Connected to Gradio API");
+        } catch (error) {
+          console.error("Connection error:", error);
+          showError("Failed to connect to detection service");
+        }
+      }
+
+      // Voice Recorder Functionality
+      async function startRecording() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
+          mediaRecorder = new MediaRecorder(stream);
+
+          mediaRecorder.ondataavailable = (e) => {
+            audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+            currentAudio = new File([audioBlob], "recording.wav", {
+              type: "audio/wav",
+            });
+
+            recordedAudio.src = URL.createObjectURL(audioBlob);
+            recordedAudio.classList.remove("hidden");
+
+            filePreview.innerHTML = `
+                        <audio controls class="preview-audio">
+                            <source src="${recordedAudio.src}" type="audio/wav">
+                        </audio>
+                        <p>Recorded Audio</p>
+                    `;
+          };
+
+          mediaRecorder.start();
+          recordButton.classList.add("recording");
+          recordIndicator.classList.add("active");
+          recordButton.textContent = "⏹️";
+        } catch (err) {
+          showError("Microphone access required for recording");
+        }
+      }
+
+      function stopRecording() {
+        mediaRecorder.stop();
+        recordButton.classList.remove("recording");
+        recordIndicator.classList.remove("active");
+        recordButton.textContent = "🎤";
+        audioChunks = [];
+      }
+
+      // File Handling
+      function handleFile(file) {
+        if (!file.type.startsWith("audio/")) {
+          showError("Please upload an audio file");
+          return;
+        }
+
+        currentAudio = file;
+        filePreview.innerHTML = `
+                <audio controls class="preview-audio">
+                    <source src="${URL.createObjectURL(file)}" type="${
+          file.type
+        }">
+                </audio>
+                <p>Selected: ${file.name}</p>
+            `;
+      }
+
+      // Prediction Function
+      async function predict() {
+        if (!currentAudio) {
+          showError("Please select or record an audio first");
+          return;
+        }
+
+        loading.classList.remove("hidden");
+        resultDiv.classList.add("hidden");
+
+        try {
+          const audioBlob = new Blob([currentAudio], {
+            type: currentAudio.type,
+          });
+          const result = await gradioClient.predict("/predict", {
+            audio_path: audioBlob,
+          });
+
+          resultDiv.innerHTML = `
+                    <h3 style="color: #2c3e50;">Analysis Result:</h3>
+                    <p style="font-size: 1.2rem; color: ${
+                      result.data.includes("FAKE") ? "#dc3545" : "#28a745"
+                    };">${result.data}</p>
+                `;
+          resultDiv.classList.remove("hidden");
+        } catch (error) {
+          console.error("Prediction error:", error);
+          showError(`Analysis failed: ${error.message}`);
+        } finally {
+          loading.classList.add("hidden");
+        }
+      }
+
+      // Sample Handling
+      async function loadSample(type) {
+        const samplePath =
+          type === "real"
+            ? "/home/user/app/whisper/test_audio_real.flac"
+            : "/home/user/app/whisper/test_audio_spoofed.flac";
+
+        try {
+          const apiName = type === "real" ? "/set_sample" : "/set_sample_1";
+          const result = await gradioClient.predict(apiName, {
+            path: samplePath,
+          });
+
+          filePreview.innerHTML = `
+                    <audio controls class="preview-audio">
+                        <source src="${result.data}" type="audio/flac">
+                    </audio>
+                    <p>Playing ${type} sample</p>
+                `;
+          currentAudio = result.data;
+        } catch (error) {
+          console.error("Sample load error:", error);
+          showError("Failed to load sample");
+        }
+      }
+
+      // Clear Function
+      // In your JavaScript code
+async function clearAll() {
+    try {
+        // Reset file preview to initial state
+        filePreview.innerHTML = `
+            <p>📁 Selected Audio</p>
+            <p>Drag & Drop Here</p>
+            <p>─ or ─</p>
+            <button class="primary-btn" onclick="document.getElementById('fileInput').click()">📤 Click to Upload</button>
+        `;
+        
+        // Reset file input
+        fileInput.value = '';
+        
+        // Stop recording if active
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+        }
+        
+        // Clear recorded audio
+        recordedAudio.src = '';
+        recordedAudio.classList.add('hidden');
+        
+        // Reset audio chunks
+        audioChunks = [];
+        currentAudio = null;
+        
+        // Hide results
+        resultDiv.classList.add('hidden');
+        loading.classList.add('hidden');
+        
+        // Reset recorder UI
+        recordButton.classList.remove('recording');
+        recordIndicator.classList.remove('active');
+        recordButton.textContent = '🎤';
+        
+    } catch (error) {
+        console.error("Clear error:", error);
+    }
+}
+
+      // Event Listeners
+      recordButton.addEventListener("click", () => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+          stopRecording();
+        } else {
+          startRecording();
+        }
+      });
+
+      dropZone.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (e) =>
+        handleFile(e.target.files[0])
+      );
+
+      // Initialize
+      window.addEventListener("load", initializeClient);
+      window.predict = predict;
+      window.loadSample = loadSample;
+      window.clearAll = clearAll;
+    </script>
+  </body>
+</html>
